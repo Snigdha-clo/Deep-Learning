@@ -1,0 +1,221 @@
+pip install --upgrade scikeras scikit-learn -q
+!pip install scikeras -q
+import numpy as np
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                              f1_score, confusion_matrix, classification_report,
+                              ConfusionMatrixDisplay)
+from sklearn.model_selection import RandomizedSearchCV
+
+np.random.seed(42)
+tf.random.set_seed(42)
+
+class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+                'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+(x_train, y_train), (x_test, y_test) = keras.datasets.fashion_mnist.load_data()
+
+print("Training data shape:", x_train.shape)
+print("Training labels shape:", y_train.shape)
+print("Testing data shape:", x_test.shape)
+print("Testing labels shape:", y_test.shape)
+plt.figure(figsize=(12, 5))
+for i in range(10):
+    plt.subplot(2, 5, i + 1)
+    plt.imshow(x_train[i], cmap='gray')
+    plt.title(class_names[y_train[i]])
+    plt.axis('off')
+plt.suptitle("Sample Images from Fashion-MNIST")
+plt.tight_layout()
+plt.show()
+unique, counts = np.unique(y_train, return_counts=True)
+plt.figure(figsize=(10, 5))
+plt.bar([class_names[i] for i in unique], counts, color='teal')
+plt.xlabel("Class")
+plt.ylabel("Number of Images")
+plt.title("Class Distribution in Training Set")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+print("Shape before preprocessing:")
+print("x_train:", x_train.shape, "| x_test:", x_test.shape)
+x_train_norm = x_train.astype('float32') / 255.0
+x_test_norm = x_test.astype('float32') / 255.0
+x_train_flat = x_train_norm.reshape(x_train_norm.shape[0], 784)
+x_test_flat = x_test_norm.reshape(x_test_norm.shape[0], 784)
+y_train_ohe = keras.utils.to_categorical(y_train, num_classes=10)
+y_test_ohe = keras.utils.to_categorical(y_test, num_classes=10)
+
+print("\nShape after preprocessing:")
+print("x_train_flat:", x_train_flat.shape, "| x_test_flat:", x_test_flat.shape)
+print("y_train_ohe:", y_train_ohe.shape, "| y_test_ohe:", y_test_ohe.shape)
+def build_baseline_model():
+    model = keras.Sequential([
+        layers.Input(shape=(784,)),
+        layers.Dense(128, activation='relu'),
+        layers.Dense(64, activation='relu'),
+        layers.Dense(10, activation='softmax')
+    ])
+    return model
+
+baseline_model = build_baseline_model()
+baseline_model.summary()
+baseline_model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+history = baseline_model.fit(
+    x_train_flat, y_train_ohe,
+    epochs=20,
+    batch_size=32,
+    validation_split=0.2,
+    verbose=1
+)
+y_pred_probs = baseline_model.predict(x_test_flat)
+y_pred = np.argmax(y_pred_probs, axis=1)
+y_true = np.argmax(y_test_ohe, axis=1)
+acc = accuracy_score(y_true, y_pred)
+prec = precision_score(y_true, y_pred, average='weighted')
+rec = recall_score(y_true, y_pred, average='weighted')
+f1 = f1_score(y_true, y_pred, average='weighted')
+
+print(f"Accuracy:  {acc:.4f}")
+print(f"Precision: {prec:.4f}")
+print(f"Recall:    {rec:.4f}")
+print(f"F1-score:  {f1:.4f}")
+cm = confusion_matrix(y_true, y_pred)
+plt.figure(figsize=(10, 8))
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+disp.plot(cmap='Blues', xticks_rotation=45)
+plt.title("Confusion Matrix - Baseline Model")
+plt.tight_layout()
+plt.show()
+print("\nClassification Report:\n")
+print(classification_report(y_true, y_pred, target_names=class_names))
+from scikeras.wrappers import KerasClassifier
+
+def create_model(hidden_layers=2, neurons=128, learning_rate=0.001,
+                  optimizer='adam', activation='relu', dropout_rate=0.0):
+    model = keras.Sequential()
+    model.add(layers.Input(shape=(784,)))
+    for _ in range(hidden_layers):
+        model.add(layers.Dense(neurons, activation=activation))
+        if dropout_rate > 0.0:
+            model.add(layers.Dropout(dropout_rate))
+    model.add(layers.Dense(10, activation='softmax'))
+
+    if optimizer == 'adam':
+        opt = keras.optimizers.Adam(learning_rate=learning_rate)
+    elif optimizer == 'sgd':
+        opt = keras.optimizers.SGD(learning_rate=learning_rate)
+    else:
+        opt = keras.optimizers.RMSprop(learning_rate=learning_rate)
+
+    model.compile(optimizer=opt, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+clf = KerasClassifier(
+    model=create_model,
+    verbose=0,
+    hidden_layers=2,
+    neurons=128,
+    learning_rate=0.001,
+    optimizer='adam',
+    activation='relu',
+    dropout_rate=0.0,
+    epochs=5,
+    batch_size=64
+)
+param_dist = {
+    'model__hidden_layers': [1, 2, 3],
+    'model__neurons': [32, 64, 128, 256],
+    'model__learning_rate': [0.1, 0.01, 0.001],
+    'model__optimizer': ['sgd', 'adam', 'rmsprop'],
+    'model__activation': ['relu', 'tanh', 'sigmoid'],
+    'model__dropout_rate': [0.0, 0.2, 0.5],
+    'batch_size': [32, 64, 128],  
+    'epochs': [5, 10]             
+}
+subset_size = 2000
+x_search = x_train_flat[:subset_size]
+y_search = y_train[:subset_size]
+
+random_search = RandomizedSearchCV(
+    estimator=clf,
+    param_distributions=param_dist,
+    n_iter=5,     
+    cv=2,          
+    verbose=1,
+    random_state=42,
+    n_jobs=1
+)
+
+random_search_result = random_search.fit(x_search, y_search)
+
+print("Best Score: %.4f" % random_search_result.best_score_)
+print("Best Params:", random_search_result.best_params_)
+best_params = random_search_result.best_params_
+
+optimized_model = create_model(
+    hidden_layers=best_params['model__hidden_layers'],
+    neurons=best_params['model__neurons'],
+    learning_rate=best_params['model__learning_rate'],
+    optimizer=best_params['model__optimizer'],
+    activation=best_params['model__activation'],
+    dropout_rate=best_params['model__dropout_rate']
+)
+
+opt_history = optimized_model.fit(
+    x_train_flat, y_train,          
+    epochs=best_params['epochs'],
+    batch_size=best_params['batch_size'],
+    validation_split=0.2,
+    verbose=1
+)
+y_pred_opt = np.argmax(optimized_model.predict(x_test_flat), axis=1)
+
+acc_opt = accuracy_score(y_true, y_pred_opt)
+prec_opt = precision_score(y_true, y_pred_opt, average='weighted')
+rec_opt = recall_score(y_true, y_pred_opt, average='weighted')
+f1_opt = f1_score(y_true, y_pred_opt, average='weighted')
+
+print(f"Optimized Accuracy:  {acc_opt:.4f}")
+print(f"Optimized Precision: {prec_opt:.4f}")
+print(f"Optimized Recall:    {rec_opt:.4f}")
+print(f"Optimized F1-score:  {f1_opt:.4f}")
+
+print(f"\nBaseline vs Optimized Accuracy: {acc:.4f} -> {acc_opt:.4f}")
+plt.figure(figsize=(8, 5))
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.title('Training vs Validation Accuracy (Baseline)')
+plt.legend()
+plt.show()
+plt.figure(figsize=(8, 5))
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training vs Validation Loss (Baseline)')
+plt.legend()
+plt.show()
+results = random_search_result.cv_results_
+plt.figure(figsize=(10, 5))
+plt.plot(results['mean_test_score'], marker='o')
+plt.xlabel('Candidate Index')
+plt.ylabel('Mean CV Accuracy')
+plt.title('Hyperparameter Search Results')
+plt.grid(True)
+plt.show()
+plt.figure(figsize=(6, 5))
+plt.bar(['Baseline', 'Optimized'], [acc, acc_opt], color=['gray', 'teal'])
+plt.ylabel('Test Accuracy')
+plt.title('Baseline vs Optimized Model Accuracy')
+plt.ylim(0, 1)
+plt.show()
