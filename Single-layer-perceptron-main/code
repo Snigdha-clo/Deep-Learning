@@ -1,0 +1,238 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                              f1_score, confusion_matrix, ConfusionMatrixDisplay)
+sns.set_style("whitegrid")
+np.random.seed(42)
+try:
+    from google.colab import files
+    print("Please upload 'data_banknote_authentication.txt'")
+    uploaded = files.upload()
+    file_path = list(uploaded.keys())[0]
+except ImportError:
+    # Not running in Colab (e.g. local testing) — set path manually
+    file_path = "data_banknote_authentication.txt"
+# Task 1: Dataset Exploration
+columns = ["Variance", "Skewness", "Curtosis", "Entropy", "Class"]
+df = pd.read_csv(file_path, header=None, names=columns)
+ 
+print("=" * 60)
+print("TASK 1: DATASET EXPLORATION")
+print("=" * 60)
+ 
+print("\nFirst five samples:")
+print(df.head())
+ 
+print("\nDataset dimensions (rows, columns):", df.shape)
+ 
+print("\nMissing values per column:")
+print(df.isnull().sum())
+ 
+print("\nDescriptive statistics:")
+print(df.describe())
+ 
+print("\nClass distribution:")
+print(df["Class"].value_counts())
+print("\n" + "=" * 60)
+print("TASK 2: EXPLORATORY DATA ANALYSIS")
+print("=" * 60)
+ 
+df.hist(figsize=(10, 8), bins=30, edgecolor="black")
+plt.suptitle("Feature Histograms")
+plt.tight_layout()
+plt.show()
+plt.figure(figsize=(6, 5))
+sns.heatmap(df.corr(), annot=True, cmap="coolwarm", fmt=".2f")
+plt.title("Correlation Heatmap")
+plt.show()
+plt.figure(figsize=(6, 5))
+sns.scatterplot(data=df, x="Variance", y="Skewness", hue="Class", palette="Set1", alpha=0.7)
+plt.title("Scatter Plot: Variance vs Skewness")
+plt.show()
+plt.figure(figsize=(10, 6))
+df_melted = df.melt(id_vars="Class", value_vars=["Variance", "Skewness", "Curtosis", "Entropy"])
+sns.boxplot(data=df_melted, x="variable", y="value", hue="Class")
+plt.title("Boxplots of Features by Class")
+plt.show()
+print("\n" + "=" * 60)
+print("TASK 3: DATA PREPROCESSING")
+print("=" * 60)
+X = df[["Variance", "Skewness", "Curtosis", "Entropy"]].values
+y = df["Class"].values
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+X_train, X_test, y_train, y_test = train_test_split(
+    X_scaled, y, test_size=0.2, random_state=42, stratify=y
+)
+ 
+print("Training set size:", X_train.shape)
+print("Testing set size:", X_test.shape)
+print("\n" + "=" * 60)
+print("TASK 4 & 5: PERCEPTRON IMPLEMENTATION & TRAINING")
+print("=" * 60)
+ 
+ 
+class Perceptron:
+    """Single Layer Perceptron implemented from scratch."""
+ 
+    def __init__(self, n_features, learning_rate=0.01, epochs=50):
+        self.lr = learning_rate
+        self.epochs = epochs
+    
+        self.weights = np.zeros(n_features)
+        self.bias = 0.0
+        self.errors_history = []
+        self.weights_history = []
+        self.bias_history = []
+    @staticmethod
+    def step_activation(z):
+        """Step Activation Function: f(z) = 1 if z >= 0 else 0"""
+        return np.where(z >= 0, 1, 0)
+    def forward(self, X):
+        """Weighted sum + activation"""
+        z = np.dot(X, self.weights) + self.bias
+        return self.step_activation(z)
+ 
+    def fit(self, X, y, verbose=True):
+        n_samples = X.shape[0]
+ 
+        for epoch in range(1, self.epochs + 1):
+            misclassified = 0
+ 
+            for idx in range(n_samples):
+                xi = X[idx]
+                target = y[idx]
+ 
+                z = np.dot(xi, self.weights) + self.bias
+                y_pred = self.step_activation(z)
+ 
+                error = target - y_pred
+                if error != 0:
+                    misclassified += 1
+                    
+                    self.weights += self.lr * error * xi
+                    self.bias += self.lr * error
+ 
+            self.errors_history.append(misclassified)
+            self.weights_history.append(self.weights.copy())
+            self.bias_history.append(self.bias)
+ 
+            if verbose:
+                print(f"Epoch {epoch:3d} | Misclassified: {misclassified:4d} | "
+                      f"Weights: {np.round(self.weights, 4)} | Bias: {round(self.bias, 4)}")
+ 
+          
+            if misclassified == 0:
+                if verbose:
+                    print(f"\nConverged at epoch {epoch}.")
+                break
+ 
+        return self
+ 
+    def predict(self, X):
+        return self.forward(X)
+ 
+LEARNING_RATE = 0.01
+EPOCHS = 50
+ 
+model = Perceptron(n_features=X_train.shape[1], learning_rate=LEARNING_RATE, epochs=EPOCHS)
+model.fit(X_train, y_train, verbose=True)
+
+print("\n" + "=" * 60)
+print("TASK 6: MODEL EVALUATION")
+print("=" * 60)
+ 
+y_pred = model.predict(X_test)
+ 
+acc = accuracy_score(y_test, y_pred)
+prec = precision_score(y_test, y_pred)
+rec = recall_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+cm = confusion_matrix(y_test, y_pred)
+ 
+print(f"Accuracy  : {acc:.4f}")
+print(f"Precision : {prec:.4f}")
+print(f"Recall    : {rec:.4f}")
+print(f"F1-score  : {f1:.4f}")
+print("\nConfusion Matrix:")
+print(cm)
+
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Authentic (0)", "Forged (1)"])
+disp.plot(cmap="Blues")
+plt.title("Confusion Matrix")
+plt.show()
+plt.figure(figsize=(7, 5))
+plt.plot(range(1, len(model.errors_history) + 1), model.errors_history, marker="o", color="crimson")
+plt.xlabel("Epoch")
+plt.ylabel("Misclassified Samples")
+plt.title("Training Error vs Epoch")
+plt.grid(True)
+plt.show()
+weights_arr = np.array(model.weights_history)
+plt.figure(figsize=(7, 5))
+for i, fname in enumerate(["Variance", "Skewness", "Curtosis", "Entropy"]):
+    plt.plot(weights_arr[:, i], label=f"w_{fname}")
+plt.xlabel("Epoch")
+plt.ylabel("Weight Value")
+plt.title("Weight Evolution over Epochs")
+plt.legend()
+plt.show()
+plt.figure(figsize=(7, 5))
+plt.plot(model.bias_history, color="green", marker="s")
+plt.xlabel("Epoch")
+plt.ylabel("Bias Value")
+plt.title("Bias Evolution over Epochs")
+plt.show()
+
+ 
+print("\n" + "=" * 60)
+print("TASK 7: LEARNING RATE COMPARISON")
+print("=" * 60)
+ 
+learning_rates = [0.001, 0.01, 0.1]
+lr_results = {}
+ 
+plt.figure(figsize=(8, 6))
+for lr in learning_rates:
+    m = Perceptron(n_features=X_train.shape[1], learning_rate=lr, epochs=50)
+    m.fit(X_train, y_train, verbose=False)
+    lr_results[lr] = m
+ 
+    y_pred_lr = m.predict(X_test)
+    acc_lr = accuracy_score(y_test, y_pred_lr)
+    print(f"Learning Rate = {lr:<6} | Epochs run = {len(m.errors_history):3d} "
+          f"| Final Misclassified = {m.errors_history[-1]:4d} | Test Accuracy = {acc_lr:.4f}")
+ 
+    plt.plot(range(1, len(m.errors_history) + 1), m.errors_history, marker="o", label=f"lr={lr}")
+ 
+plt.xlabel("Epoch")
+plt.ylabel("Misclassified Samples")
+plt.title("Learning Rate Comparison: Convergence Behaviour")
+plt.legend()
+plt.show()
+
+print("\n" + "=" * 60)
+print("OPTIONAL: DECISION BOUNDARY (Variance vs Skewness)")
+print("=" * 60)
+ 
+X_2d = X_train[:, :2]  # Variance, Skewness only
+model_2d = Perceptron(n_features=2, learning_rate=0.01, epochs=50)
+model_2d.fit(X_2d, y_train, verbose=False)
+ 
+x_min, x_max = X_2d[:, 0].min() - 1, X_2d[:, 0].max() + 1
+y_min, y_max = X_2d[:, 1].min() - 1, X_2d[:, 1].max() + 1
+xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.05), np.arange(y_min, y_max, 0.05))
+Z = model_2d.predict(np.c_[xx.ravel(), yy.ravel()])
+Z = Z.reshape(xx.shape)
+ 
+plt.figure(figsize=(7, 6))
+plt.contourf(xx, yy, Z, alpha=0.3, cmap="coolwarm")
+plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y_train, cmap="coolwarm", edgecolor="k")
+plt.xlabel("Variance (scaled)")
+plt.ylabel("Skewness (scaled)")
+plt.title("Decision Boundary: Variance vs Skewness")
+plt.show()
