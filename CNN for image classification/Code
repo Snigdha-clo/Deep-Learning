@@ -1,0 +1,265 @@
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+
+class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer',
+               'dog', 'frog', 'horse', 'ship', 'truck']
+print("Training data shape:", x_train.shape)
+print("Training labels shape:", y_train.shape)
+print("Testing data shape:", x_test.shape)
+print("Testing labels shape:", y_test.shape)
+plt.figure(figsize=(10, 4))
+for i in range(10):
+    plt.subplot(2, 5, i + 1)
+    plt.imshow(x_train[i])
+    plt.title(class_names[y_train[i][0]])
+    plt.axis('off')
+plt.tight_layout()
+plt.savefig('sample_images.png', dpi=150)
+plt.show()
+unique, counts = np.unique(y_train, return_counts=True)
+plt.figure(figsize=(8, 5))
+plt.bar([class_names[i] for i in unique], counts, color='skyblue')
+plt.xlabel('Class')
+plt.ylabel('Number of Images')
+plt.title('Class Distribution in Training Set')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.savefig('class_distribution.png', dpi=150)
+plt.show()
+x_train_norm = x_train.astype('float32') / 255.0
+x_test_norm = x_test.astype('float32') / 255.0
+from tensorflow.keras.layers import Conv2D, Input
+from tensorflow.keras.models import Model
+
+sample_img = np.expand_dims(x_train_norm[0], axis=0)  
+
+kernel_sizes = [3, 5, 7]
+feature_map_sizes = {}
+
+for k in kernel_sizes:
+    inp = Input(shape=(32, 32, 3))
+    conv = Conv2D(filters=8, kernel_size=k, strides=1, padding='valid')(inp)
+    model = Model(inp, conv)
+    output = model.predict(sample_img, verbose=0)
+    feature_map_sizes[k] = output.shape
+    print(f"Kernel {k}x{k} -> Feature map shape: {output.shape}")
+N = 32
+P = 0
+S = 1
+print("\nManual calculation (padding='valid', stride=1):")
+for F in kernel_sizes:
+    out_dim = (N - F + 2 * P) // S + 1
+    print(f"Kernel {F}x{F} -> Output size: {out_dim}x{out_dim}")
+configs = [
+    {'stride': 1, 'padding': 'valid'},
+    {'stride': 2, 'padding': 'valid'},
+    {'stride': 1, 'padding': 'same'},
+    {'stride': 2, 'padding': 'same'},
+]
+
+print("Input size: 32x32, Kernel size: 3x3\n")
+
+for cfg in configs:
+    inp = Input(shape=(32, 32, 3))
+    conv = Conv2D(filters=8, kernel_size=3, strides=cfg['stride'],
+                  padding=cfg['padding'])(inp)
+    model = Model(inp, conv)
+    output = model.predict(sample_img, verbose=0)
+    print(f"Stride={cfg['stride']}, Padding={cfg['padding']} "
+          f"-> Output shape: {output.shape}")
+def compute_output_size(N, F, P, S):
+    return (N - F + 2 * P) // S + 1
+
+print("\nManual calculations:")
+N, F = 32, 3
+print("Valid padding, stride 1:", compute_output_size(N, F, 0, 1))
+print("Valid padding, stride 2:", compute_output_size(N, F, 0, 2))
+print("Same padding, stride 1: 32 (output preserved)")
+print("Same padding, stride 2: 16 (output halved)")
+from tensorflow.keras.layers import Input, Conv2D
+from tensorflow.keras.models import Sequential, Model
+
+viz_model = Sequential([
+    Input(shape=(32, 32, 3)),
+    Conv2D(32, (3, 3), activation='relu', padding='same')
+])
+
+first_conv_output_model = Model(inputs=viz_model.inputs,
+                                 outputs=viz_model.layers[0].output)
+
+sample_img = np.expand_dims(x_train_norm[0], axis=0)
+feature_maps = first_conv_output_model.predict(sample_img, verbose=0)
+
+print("Feature maps shape:", feature_maps.shape)
+
+n_maps = 8
+plt.figure(figsize=(12, 6))
+for i in range(n_maps):
+    plt.subplot(2, 4, i + 1)
+    plt.imshow(feature_maps[0, :, :, i], cmap='viridis')
+    plt.title(f'Feature Map {i+1}')
+    plt.axis('off')
+plt.tight_layout()
+plt.savefig('feature_maps.png', dpi=150)
+plt.show()
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, AveragePooling2D, Flatten, Dense
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.utils import to_categorical
+import numpy as np
+y_train_cat = to_categorical(y_train, 10)
+y_test_cat = to_categorical(y_test, 10)
+
+def build_model(pool_type='max'):
+    model = Sequential()
+    model.add(Input(shape=(32, 32, 3)))
+    model.add(Conv2D(32, (3, 3), activation='relu', padding='same'))
+    if pool_type == 'max':
+        model.add(MaxPooling2D((2, 2)))
+    else:
+        model.add(AveragePooling2D((2, 2)))
+    model.add(Conv2D(64, (3, 3), activation='relu', padding='same'))
+    if pool_type == 'max':
+        model.add(MaxPooling2D((2, 2)))
+    else:
+        model.add(AveragePooling2D((2, 2)))
+    model.add(Flatten())
+    model.add(Dense(64, activation='relu'))
+    model.add(Dense(10, activation='softmax'))
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+sample_img = np.expand_dims(x_train_norm[0], axis=0)
+max_model = build_model('max')
+max_model.summary()
+
+pool_output_model_max = Model(inputs=max_model.inputs, outputs=max_model.layers[1].output)
+print("Max Pooling output shape after first pooling layer:")
+print(pool_output_model_max.predict(sample_img, verbose=0).shape)
+
+max_history = max_model.fit(x_train_norm, y_train_cat,
+                             epochs=5,
+                             batch_size=32,
+                             validation_split=0.1,
+                             verbose=1)
+
+avg_model = build_model('avg')
+avg_model.summary()
+
+pool_output_model_avg = Model(inputs=avg_model.inputs, outputs=avg_model.layers[1].output)
+print("\nAverage Pooling output shape after first pooling layer:")
+print(pool_output_model_avg.predict(sample_img, verbose=0).shape)
+
+avg_history = avg_model.fit(x_train_norm, y_train_cat,
+                             epochs=5,
+                             batch_size=32,
+                             validation_split=0.1,
+                             verbose=1)
+
+max_test_loss, max_test_acc = max_model.evaluate(x_test_norm, y_test_cat, verbose=0)
+avg_test_loss, avg_test_acc = avg_model.evaluate(x_test_norm, y_test_cat, verbose=0)
+
+print(f"\nMax Pooling     -> Test Loss: {max_test_loss:.4f}, Test Accuracy: {max_test_acc:.4f}")
+print(f"Average Pooling -> Test Loss: {avg_test_loss:.4f}, Test Accuracy: {avg_test_acc:.4f}")
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.utils import to_categorical
+import matplotlib.pyplot as plt
+
+y_train_cat = to_categorical(y_train, 10)
+y_test_cat = to_categorical(y_test, 10)
+model = Sequential([
+    Input(shape=(32, 32, 3)),
+    Conv2D(32, (3, 3), activation='relu', padding='same'),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu', padding='same'),
+    MaxPooling2D((2, 2)),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dense(10, activation='softmax')
+])
+
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+model.summary()
+history = model.fit(x_train_norm, y_train_cat,
+                     epochs=20,
+                     batch_size=32,
+                     validation_split=0.1,
+                     verbose=1)
+plt.figure(figsize=(6, 4))
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.title('Training Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.tight_layout()
+plt.savefig('training_accuracy.png', dpi=150)
+plt.show()
+plt.figure(figsize=(6, 4))
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy', color='orange')
+plt.title('Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.tight_layout()
+plt.savefig('validation_accuracy.png', dpi=150)
+plt.show()
+plt.figure(figsize=(6, 4))
+plt.plot(history.history['loss'], label='Train Loss')
+plt.title('Training Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.tight_layout()
+plt.savefig('training_loss.png', dpi=150)
+plt.show()
+plt.figure(figsize=(6, 4))
+plt.plot(history.history['val_loss'], label='Validation Loss', color='orange')
+plt.title('Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.tight_layout()
+plt.savefig('validation_loss.png', dpi=150)
+plt.show()
+import numpy as np
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                              f1_score, confusion_matrix, classification_report)
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer',
+               'dog', 'frog', 'horse', 'ship', 'truck']
+
+y_pred_probs = model.predict(x_test_norm, verbose=0)
+y_pred = np.argmax(y_pred_probs, axis=1)
+y_true = y_test.flatten()
+acc = accuracy_score(y_true, y_pred)
+prec = precision_score(y_true, y_pred, average='macro')
+rec = recall_score(y_true, y_pred, average='macro')
+f1 = f1_score(y_true, y_pred, average='macro')
+
+print(f"Test Accuracy:  {acc:.4f}")
+print(f"Precision (macro): {prec:.4f}")
+print(f"Recall (macro):    {rec:.4f}")
+print(f"F1-score (macro):  {f1:.4f}")
+
+cm = confusion_matrix(y_true, y_pred)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=class_names, yticklabels=class_names)
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.tight_layout()
+plt.savefig('confusion_matrix.png', dpi=150)
+plt.show()
+print("\nClassification Report:")
+print(classification_report(y_true, y_pred, target_names=class_names))
+print(f"\nTotal trainable parameters: {model.count_params()}")
